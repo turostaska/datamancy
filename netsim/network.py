@@ -72,6 +72,7 @@ if len(ADDR_SPACE) < 2:
 
 for addr in ADDR_SPACE:
 	if addr not in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
+		print(addr)
 		print('Error: Addresses must be capital letters from the 26-element English alphabet.')
 		sys.exit(1)
 

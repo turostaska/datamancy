@@ -70,8 +70,8 @@ More examples
 
 An example sender and an example receiver applications are provided too (sender.py and receiver.py). Here's how to use them:
 
-python3 network.py -p './network/' -a 'ABCDE' --clean
-python3 sender.py -p './network/' -a A
-python3 receiver.py -p './network/' -a B
+python network.py -p "./network/" -a "AB" --clean
+python sender.py -p "./network/" -a A
+python receiver.py -p "./network/" -a B
 
 Now, A can send messages to B (given that network.py is running)...
