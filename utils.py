@@ -10,7 +10,6 @@ types = {
 
 
 server_addr = 'A'
-client_addr = 'B'
 network_path = "./netsim/network/"
 public_key_path = './public_key'
 users_path = './users'

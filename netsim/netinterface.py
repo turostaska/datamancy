@@ -52,10 +52,12 @@ class network_interface:
 		while True:
 			msgs = sorted(os.listdir(in_dir))
 			if len(msgs) - 1 > self.last_read: 
-				with open(in_dir + '/' + msgs[self.last_read + 1], 'rb') as f: msg = f.read()
+				with open(in_dir + '/' + msgs[self.last_read + 1], 'rb') as f:
+					msg = f.read()
 				status = True
 				self.last_read += 1
 
-			if not blocking or status: return status, msg
-			else: time.sleep(self.timeout)
-			
+			if not blocking or status:
+				return status, msg
+			else:
+				time.sleep(self.timeout)

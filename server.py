@@ -3,15 +3,18 @@ from Crypto.Hash import SHA256
 
 from utils import *
 import os.path
+from collections import namedtuple
 from Crypto.PublicKey import RSA
 
 
 private_key_path = './private-key'
-
-
 key_pair = None
-
 netif = init_network(server_addr)
+users = {}
+states = {'WAITING': 1, 'ACTIVE': 2}
+ProtocolState = namedtuple('State', ['state', 'session_key', 'sqn', 'addr'])
+protocol_state = ProtocolState(states['WAITING'], None, None, None)
+
 
 def auth_client(ciphertext):
     cipher = PKCS1_OAEP.new(key_pair)
@@ -71,8 +74,6 @@ def generate_rsa_keys():
         f.write(key_pair.public_key().export_key('DER'))
 
 
-users = {}
-
 def read_users():
     with open(users_path, 'rb') as f:
         while True:
@@ -83,11 +84,40 @@ def read_users():
             users[(username.decode('utf8')).replace('\n', '')] = password[0:32]
 
 
+def process_gcm_message():
+    pass
+
+
+def send_session_accept(dest=protocol_state.addr):
+    nonce = Random.get_random_bytes(16)
+    cipher = AES.new(key=protocol_state.session_key, mode=AES.MODE_GCM, nonce=nonce, mac_len=16)
+
+    body = types['session_accept']
+    ciphertext, tag = cipher.encrypt_and_digest(body)
+
+    crypto_fields = tag + nonce
+    data = ciphertext + crypto_fields
+
+    netif.send_msg(dest, data)
+
+
+def send_gcm_msg():
+    type = types['response']
+    pass
+
+
 def main():
     generate_rsa_keys()
     read_users()
-    status, msg = netif.receive_msg(blocking=True)
-    auth_client(msg)
+
+    global protocol_state
+    while protocol_state.state == states['WAITING']:
+        _, msg = netif.receive_msg(blocking=True)
+        auth_status, session_key, addr = auth_client(msg)
+        print(f"Successful login from address {addr}" if auth_status else "Login rejected")
+        if auth_status:
+            protocol_state = ProtocolState(states['ACTIVE'], session_key, -1, addr)
+            send_session_accept(addr)
 
 
 if __name__ == '__main__':

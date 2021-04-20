@@ -13,6 +13,7 @@ def read_rsa_public_key():
         with open(public_key_path, 'rb') as f:
             return RSA.import_key(f.read())
 
+
 def send_session_init(username, password, dest=server_addr):
     header = types['session_init'] + bytes([98])
     session_key = Random.get_random_bytes(32)
@@ -23,7 +24,9 @@ def send_session_init(username, password, dest=server_addr):
     cipher = PKCS1_OAEP.new(key)
     ciphertext = cipher.encrypt(header+body)
 
+    protocol_state = ProtocolState(states['WAITING'], session_key, None)
     netif.send_msg(dest, ciphertext)
+
 
 
 def send_gcm_message():
@@ -38,7 +41,13 @@ def send_gcm_message():
 
 
 def main():
-    send_session_init(b'faci', b'isomuchdesireflora')
+    username = 'amyglassires'  # input('Please enter your username: ')
+    password = 'afraidofuntruecops'  # input("Password: ")
+    # todo: átírni getpassra
+    # password = getpass("Password: ")
+    send_session_init(username.encode(), password.encode())
+    _, msg = netif.receive_msg(blocking=True)
+    process_session_accept(msg)
 
 
 if __name__ == '__main__':
