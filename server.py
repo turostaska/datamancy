@@ -1,4 +1,8 @@
-from Crypto.Cipher import PKCS1_OAEP
+import struct
+from datetime import datetime
+
+from Crypto import Random
+from Crypto.Cipher import PKCS1_OAEP, AES
 from Crypto.Hash import SHA256
 
 from utils import *
@@ -26,13 +30,14 @@ def auth_client(ciphertext):
         return
 
     len = data[1:2]
-    if int.from_bytes(len, "big") != 98:
+    if int.from_bytes(len, "big") != 99:
         print("Invalid message length")
         return
 
     username_padded = data[2:34]
     password_padded = data[34:66]
     session_key_padded = data[66:98]
+    addr = data[98:99].decode('utf8')
 
     username = remove_padding(username_padded)
     password = remove_padding(password_padded)
@@ -45,18 +50,7 @@ def auth_client(ciphertext):
     hash = SHA256.new()
     hash.update(password)
     password_hashed = hash.digest()
-    print(users[username.decode('utf8')] == password_hashed)
-
-    # header = types['session_init'] + bytes([98])
-    # body = pad_to_length(username, 32) + pad_to_length(password, 32)
-    #
-    # key = RSA.generate(2048)
-    #
-    # ciphertext = cipher.encrypt(header + body)
-    #
-    # with open(in_dir + '/' + msgs[self.last_read + 1], 'rb') as f:
-    #     msg = f.read()
-    pass
+    return users[username.decode('utf8')] == password_hashed, session_key, addr
 
 
 def generate_rsa_keys():
@@ -98,6 +92,50 @@ def send_session_accept(dest=protocol_state.addr):
     netif.send_msg(dest, data)
 
 
+def send_error(sqn):
+    sqn -= 1
+    # todo: send an error msg responding to the untrue call
+    pass
+
+
+def process_request(msg):
+    # global protocol_state
+    # protocol_state = ProtocolState(protocol_state.state, protocol_state.session_key, protocol_state.sqn + 1, protocol_state.addr)
+
+    tag = msg[-32:-16]
+    nonce = msg[-16:]
+    ciphertext = msg[0:-32]
+
+    cipher = AES.new(key=protocol_state.session_key, mode=AES.MODE_GCM, nonce=nonce, mac_len=16)
+    data = cipher.decrypt_and_verify(ciphertext, tag).decode('utf8')
+
+    type = data[0]
+    length = int.from_bytes(data[1:9], byteorder='big')
+    timestamp = struct.unpack("d", data[9:17])[0]
+    sqn = int.from_bytes(data[17:21], byteorder='big')
+    cmd = data[21:24]
+    body = data[24:].decode('utf8')
+
+    if type != types['request']:
+        print("Invalid type")
+        send_error(sqn)
+        return
+    if sqn != protocol_state.sqn+1:
+        print(f"Expected sequence number {protocol_state.sqn}, but got {sqn}")
+        send_error(sqn)
+        return
+    if timestamp > datetime.now().timestamp() or timestamp < datetime.now().timestamp() - datetime.timedelta(minutes=1):
+        print(f'Untrue timestamp: {timestamp}')
+        send_error(sqn)
+        return
+    if length != len(msg):
+        print("Invalid message length")
+        send_error(sqn)
+        return
+    # todo: manage request
+
+
+
 def send_gcm_msg():
     type = types['response']
     pass
@@ -115,6 +153,10 @@ def main():
         if auth_status:
             protocol_state = ProtocolState(states['ACTIVE'], session_key, -1, addr)
             send_session_accept(addr)
+
+    while protocol_state.state == states['ACTIVE']:
+        _, msg = netif.receive_msg(blocking=True)
+        process_request(msg)
 
 
 if __name__ == '__main__':

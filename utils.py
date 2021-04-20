@@ -8,7 +8,6 @@ types = {
     'response': b'\x01',
 }
 
-
 server_addr = 'A'
 network_path = "./netsim/network/"
 public_key_path = './public_key'
