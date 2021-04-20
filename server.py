@@ -28,8 +28,8 @@ key_pair = None
 netif = init_network(server_addr)
 users = {}
 states = {'WAITING': 1, 'ACTIVE': 2}
-ProtocolState = namedtuple('State', ['state', 'session_key', 'sqn', 'addr'])
-protocol_state = ProtocolState(states['WAITING'], None, None, None)
+
+protocol_state = ProtocolState(state=states['WAITING'])
 
 
 def auth_client(ciphertext):
@@ -51,7 +51,7 @@ def auth_client(ciphertext):
     session_key_padded = data[66:98]
     addr = data[98:99].decode('utf8')
 
-    username = remove_padding(username_padded)
+    username = remove_padding(username_padded).decode("utf8")
     password = remove_padding(password_padded)
     session_key = remove_padding(session_key_padded)
 
@@ -62,7 +62,7 @@ def auth_client(ciphertext):
     hash = SHA256.new()
     hash.update(password)
     password_hashed = hash.digest()
-    return users[username.decode('utf8')] == password_hashed, session_key, addr
+    return users[username] == password_hashed, session_key, addr, username
 
 
 def generate_rsa_keys():
@@ -211,9 +211,9 @@ def process_request(msg):
     ciphertext = msg[0:-32]
 
     cipher = AES.new(key=protocol_state.session_key, mode=AES.MODE_GCM, nonce=nonce, mac_len=16)
-    data = cipher.decrypt_and_verify(ciphertext, tag).decode('utf8')
+    data = cipher.decrypt_and_verify(ciphertext, tag)
 
-    type = data[0]
+    type = data[:1]
     length = int.from_bytes(data[1:9], byteorder='big')
     timestamp = struct.unpack("d", data[9:17])[0]
     sqn = int.from_bytes(data[17:21], byteorder='big')
@@ -271,10 +271,16 @@ def main():
 
     while protocol_state.state == states['WAITING']:
         _, msg = netif.receive_msg(blocking=True)
-        auth_status, session_key, addr = auth_client(msg)
+        auth_status, session_key, addr, username = auth_client(msg)
         print(f"Successful login from address {addr}" if auth_status else "Login rejected")
         if auth_status:
-            protocol_state = ProtocolState(states['ACTIVE'], session_key, -1, addr)
+            protocol_state.state = states['ACTIVE']
+            protocol_state.session_key = session_key
+            protocol_state.req_sqn = -1
+            protocol_state.resp_sqn = -1
+            protocol_state.addr = addr
+            protocol_state.username = username
+            protocol_state.working_dir = os.path.join(".", username)
             send_session_accept(addr)
 
     while protocol_state.state == states['ACTIVE']:

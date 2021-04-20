@@ -8,6 +8,17 @@ from Crypto.PublicKey import RSA
 from utils import *
 from getpass import getpass
 
+class ProtocolState:
+    def __init__(self, state=None, session_key=None, req_sqn=None, resp_sqn=None, working_dir=None):
+        self.state = state
+        self.session_key = session_key
+        self.req_sqn = req_sqn
+        self.resp_sqn = resp_sqn
+        self.working_dir = working_dir
+
+
+states = {'WAITING': 1, 'ACTIVE': 2}
+protocol_state = ProtocolState(states['WAITING'])
 own_addr = 'B'
 netif = init_network(own_addr)
 
@@ -47,9 +58,10 @@ def process_session_accept(data):
     body = cipher.decrypt_and_verify(ciphertext, tag)
 
     if body == types['session_accept']:
-        protocol_state = ProtocolState(states['ACTIVE'], protocol_state.session_key, -1)
+        protocol_state.state = states['ACTIVE']
+        protocol_state.req_sqn = -1
+        protocol_state.resp_sqn = -1
         return True
-
 
 def send_request(cmd, body):
     global protocol_state
@@ -57,7 +69,7 @@ def send_request(cmd, body):
 
     type = types['request']
     timestamp = bytearray(struct.pack("d", datetime.now().timestamp()))
-    sequence_number = protocol_state.sqn.to_bytes(4, byteorder="big")
+    sequence_number = protocol_state.req_sqn.to_bytes(4, byteorder="big")
 
     length = (len(type) + 8 + 8 + len(sequence_number) + len(cmd) + len(body) + 16 + 16).to_bytes(8, byteorder="big")
     header = type + length + timestamp + sequence_number + cmd.encode()
@@ -65,7 +77,7 @@ def send_request(cmd, body):
     nonce = Random.get_random_bytes(16)
     cipher = AES.new(key=protocol_state.session_key, mode=AES.MODE_GCM, nonce=nonce, mac_len=16)
 
-    ciphertext, tag = cipher.encrypt_and_digest(header + body.encode())
+    ciphertext, tag = cipher.encrypt_and_digest(header + body)
 
     crypto_fields = tag + nonce
     data = ciphertext + crypto_fields

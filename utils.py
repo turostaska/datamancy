@@ -1,3 +1,5 @@
+import os.path
+
 from netsim.netinterface import network_interface
 
 types = {
@@ -6,6 +8,11 @@ types = {
     'session_close': b'\x02',
     'request': b'\x00',
     'response': b'\x01',
+}
+
+result = {
+    'success': b'\x00',
+    'failure': b'\x01',
 }
 
 server_addr = 'A'
@@ -28,6 +35,9 @@ def remove_padding(padded):
 
     return padded
 
+
+def append_to_user_path(username,path):
+    return os.path.join('.',username,path)
 
 
 def init_network(own_addr):
