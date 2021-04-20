@@ -84,9 +84,6 @@ def read_users():
             users[(username.decode('utf8')).replace('\n', '')] = password[0:32]
 
 
-def process_gcm_message():
-    pass
-
 
 def send_session_accept(dest=protocol_state.addr):
     nonce = Random.get_random_bytes(16)

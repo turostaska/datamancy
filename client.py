@@ -46,8 +46,13 @@ def main():
     # todo: átírni getpassra
     # password = getpass("Password: ")
     send_session_init(username.encode(), password.encode())
+
     _, msg = netif.receive_msg(blocking=True)
-    process_session_accept(msg)
+    if not process_session_accept(msg):
+        print('Login failed.')
+        return
+
+    send_request('ASD', 'megeszem a gcm, ezert hivnak jedinek')
 
 
 if __name__ == '__main__':
