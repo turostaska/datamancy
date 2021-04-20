@@ -1,6 +1,5 @@
 import os
 import struct
-from collections import namedtuple
 from datetime import datetime
 
 from Crypto.Cipher import AES, PKCS1_OAEP
@@ -31,7 +30,8 @@ def send_session_init(username, password, dest=server_addr):
     cipher = PKCS1_OAEP.new(key)
     ciphertext = cipher.encrypt(header+body)
 
-    protocol_state = ProtocolState(states['WAITING'], session_key, None)
+    protocol_state.state=states['WAITING']
+    protocol_state.session_key=session_key
     netif.send_msg(dest, ciphertext)
 
 
@@ -53,7 +53,7 @@ def process_session_accept(data):
 
 def send_request(cmd, body):
     global protocol_state
-    protocol_state = ProtocolState(protocol_state.state, protocol_state.session_key, protocol_state.sqn+1)
+    protocol_state.req_sqn += 1
 
     type = types['request']
     timestamp = bytearray(struct.pack("d", datetime.now().timestamp()))
@@ -72,9 +72,52 @@ def send_request(cmd, body):
 
     netif.send_msg(server_addr, data)
 
-states = {'WAITING': 1, 'ACTIVE': 2}
-ProtocolState = namedtuple('State', ['state', 'session_key', 'sqn'])
-protocol_state = ProtocolState(states['WAITING'], None, None)
+def process_response(msg):
+        tag = msg[-32:-16]
+        nonce = msg[-16:]
+        ciphertext = msg[0:-32]
+
+        cipher = AES.new(key=protocol_state.session_key, mode=AES.MODE_GCM, nonce=nonce, mac_len=16)
+        data = cipher.decrypt_and_verify(ciphertext, tag)
+
+        type = data[:1]
+        length = int.from_bytes(data[1:9], byteorder='big')
+        timestamp = struct.unpack("d", data[9:17])[0]
+        sqn = int.from_bytes(data[17:21], byteorder='big')
+        cmd = data[21:24].decode('utf8').upper()
+        req_sqn = int.from_bytes(data[24:28], byteorder="big")
+        body = data[28:]
+
+        if type != types['response']:
+            print(f"Invalid type, got {type}")
+            # send_error(sqn)
+            return
+        if sqn != protocol_state.resp_sqn + 1:
+            print(f"Expected sequence number {protocol_state.resp_sqn}, but got {sqn}")
+            # send_error(sqn)
+            return
+        if req_sqn != protocol_state.req_sqn:
+            print(f"Expected response for request {protocol_state.req_sqn}, but got {req_sqn}")
+            # send_error(sqn)
+            return
+        if timestamp > datetime.now().timestamp() or timestamp < datetime.now().timestamp() - 60:
+            print(f'Untrue timestamp: {timestamp}')
+            # send_error(sqn)
+            return
+        if length != len(msg):
+            print("Invalid message length")
+            # send_error(sqn)
+            return
+
+        # print(len(body))
+        # filename = body[:255]
+        # filename = remove_padding(filename).decode('utf8')
+        # file = body[255:]
+        # protocol_state.resp_sqn += 1
+        # print(filename)
+        # with open(filename, "wb") as out_file:
+        #     out_file.write(file)
+        print(body.decode())
 
 def main():
     username = 'amyglassires'  # input('Please enter your username: ')
@@ -88,8 +131,16 @@ def main():
         print('Login failed.')
         return
 
-    send_request('ASD', 'megeszem a gcm, ezert hivnak jedinek')
+    # send_request('DNL', 'magan.png'.encode())
+    # _, msg = netif.receive_msg(blocking=True)
+    # process_response(msg)
 
+    with open(os.path.join("magan.png"), "rb") as in_file:
+        data = in_file.read()
+
+    send_request('UPL', pad_to_length("magan.png".encode(), 255) + data)
+    _, msg = netif.receive_msg(blocking=True)
+    process_response(msg)
 
 if __name__ == '__main__':
     main()

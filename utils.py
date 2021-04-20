@@ -29,5 +29,14 @@ def remove_padding(padded):
     return padded
 
 
+
 def init_network(own_addr):
     return network_interface(network_path, own_addr)
+
+
+# source: https://stackoverflow.com/questions/3812849/how-to-check-whether-a-directory-is-a-sub-directory-of-another-directory/37095733#37095733
+def path_is_parent(parent_path, child_path):
+    parent_path = os.path.abspath(parent_path)
+    child_path = os.path.abspath(child_path)
+
+    return os.path.commonpath([parent_path]) == os.path.commonpath([parent_path, child_path])
