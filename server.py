@@ -205,6 +205,10 @@ def upl(filename, file):
 
 
 def dnl(filename):
+    if not check_path_in_scope(filename):
+        print('Path falls out of scope.')
+        send_response("DNL", protocol_state.req_sqn, result['failure'])
+        return
     try:
         with open(os.path.join(protocol_state.working_dir, filename), "rb") as in_file:
             data = in_file.read()
@@ -273,7 +277,7 @@ def process_request(msg):
         upl(filename, file)
         pass
     elif cmd == 'DNL':
-        dnl(body.decode("utf8"))
+        dnl(remove_padding(body).decode("utf8"))
     elif cmd == 'RMF':
         rmf(remove_padding(body).decode("utf8"))
 
