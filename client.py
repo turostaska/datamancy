@@ -8,6 +8,7 @@ from Crypto.PublicKey import RSA
 from utils import *
 from getpass import getpass
 
+
 class ProtocolState:
     def __init__(self, state=None, session_key=None, req_sqn=None, resp_sqn=None, working_dir=None):
         self.state = state
@@ -21,6 +22,7 @@ states = {'WAITING': 1, 'ACTIVE': 2}
 protocol_state = ProtocolState(states['WAITING'])
 own_addr = 'B'
 netif = init_network(own_addr)
+
 
 def read_rsa_public_key():
     global public_key
@@ -39,10 +41,10 @@ def send_session_init(username, password, dest=server_addr):
 
     key = read_rsa_public_key()
     cipher = PKCS1_OAEP.new(key)
-    ciphertext = cipher.encrypt(header+body)
+    ciphertext = cipher.encrypt(header + body)
 
-    protocol_state.state=states['WAITING']
-    protocol_state.session_key=session_key
+    protocol_state.state = states['WAITING']
+    protocol_state.session_key = session_key
     netif.send_msg(dest, ciphertext)
 
 
@@ -62,6 +64,7 @@ def process_session_accept(data):
         protocol_state.req_sqn = -1
         protocol_state.resp_sqn = -1
         return True
+
 
 def send_request(cmd, body):
     global protocol_state
@@ -84,58 +87,122 @@ def send_request(cmd, body):
 
     netif.send_msg(server_addr, data)
 
+
 def process_response(msg):
-        tag = msg[-32:-16]
-        nonce = msg[-16:]
-        ciphertext = msg[0:-32]
+    tag = msg[-32:-16]
+    nonce = msg[-16:]
+    ciphertext = msg[0:-32]
 
-        cipher = AES.new(key=protocol_state.session_key, mode=AES.MODE_GCM, nonce=nonce, mac_len=16)
-        data = cipher.decrypt_and_verify(ciphertext, tag)
+    cipher = AES.new(key=protocol_state.session_key, mode=AES.MODE_GCM, nonce=nonce, mac_len=16)
+    data = cipher.decrypt_and_verify(ciphertext, tag)
 
-        type = data[:1]
-        length = int.from_bytes(data[1:9], byteorder='big')
-        timestamp = struct.unpack("d", data[9:17])[0]
-        sqn = int.from_bytes(data[17:21], byteorder='big')
-        cmd = data[21:24].decode('utf8').upper()
-        req_sqn = int.from_bytes(data[24:28], byteorder="big")
-        body = data[28:]
+    type = data[:1]
+    length = int.from_bytes(data[1:9], byteorder='big')
+    timestamp = struct.unpack("d", data[9:17])[0]
+    sqn = int.from_bytes(data[17:21], byteorder='big')
+    cmd = data[21:24].decode('utf8').upper()
+    req_sqn = int.from_bytes(data[24:28], byteorder="big")
+    body = data[28:]
 
-        if type != types['response']:
-            print(f"Invalid type, got {type}")
-            # send_error(sqn)
-            return
-        if sqn != protocol_state.resp_sqn + 1:
-            print(f"Expected sequence number {protocol_state.resp_sqn}, but got {sqn}")
-            # send_error(sqn)
-            return
-        if req_sqn != protocol_state.req_sqn:
-            print(f"Expected response for request {protocol_state.req_sqn}, but got {req_sqn}")
-            # send_error(sqn)
-            return
-        if timestamp > datetime.now().timestamp() or timestamp < datetime.now().timestamp() - 60:
-            print(f'Untrue timestamp: {timestamp}')
-            # send_error(sqn)
-            return
-        if length != len(msg):
-            print("Invalid message length")
-            # send_error(sqn)
-            return
+    if type != types['response']:
+        print(f"Invalid type, got {type}")
+        return
+    if sqn != protocol_state.resp_sqn + 1:
+        print(f"Expected sequence number {protocol_state.resp_sqn}, but got {sqn}")
+        return
+    if req_sqn != protocol_state.req_sqn:
+        print(f"Expected response for request {protocol_state.req_sqn}, but got {req_sqn}")
+        return
+    if timestamp > datetime.now().timestamp() or timestamp < datetime.now().timestamp() - 60:
+        print(f'Untrue timestamp: {timestamp}')
+        return
+    if length != len(msg):
+        print("Invalid message length")
+        return
 
-        # print(len(body))
-        # filename = body[:255]
-        # filename = remove_padding(filename).decode('utf8')
-        # file = body[255:]
-        # protocol_state.resp_sqn += 1
-        # print(filename)
-        # with open(filename, "wb") as out_file:
-        #     out_file.write(file)
+    protocol_state.resp_sqn += 1
+
+    if cmd == 'MKD':
+        if body == result['success']:
+            print('Directory created.')
+        else:
+            print('Creating directory failed.')
+    elif cmd == 'RMD':
+        if body == result['success']:
+            print('Directory removed.')
+        else:
+            print('Removing directory failed.')
+    elif cmd == 'GWD':
         print(body.decode())
+    elif cmd == 'CWD':
+        if body == result['success']:
+            print('Directory changed.')
+        else:
+            print('Changing directory failed.')
+    elif cmd == 'LST':
+        print(body.decode())
+    elif cmd == 'UPL':
+        if body == result['success']:
+            print('Upload was successful.')
+        else:
+            print('Upload failed.')
+    elif cmd == 'DNL':
+        if body == result['failure']:
+            print("Download failed.")
+        else:
+            filename = body[:255]
+            filename = remove_padding(filename).decode('utf8')
+            encrypted_file = body[255:]
+            file = decrypt_file(encrypted_file)
+            with open(filename, "wb") as out_file:
+                out_file.write(file)
+            print(f'Successfully downloaded {filename}')
+    elif cmd == 'RMF':
+        if body == result['success']:
+            print('File deleted.')
+        else:
+            print('File deletion failed.')
+
+
+def store_hashed_pwd(passwd):
+    global hashed_passw
+    hash = SHA3_256.new()
+    hash.update(passwd.encode())
+    hashed_passw = hash.digest()
+
+
+def encrypt_file(file):
+    global hashed_passw
+    key = hashed_passw
+
+    nonce = Random.get_random_bytes(16)
+    cipher = AES.new(key=key, mode=AES.MODE_GCM, nonce=nonce, mac_len=16)
+
+    ciphertext, tag = cipher.encrypt_and_digest(file)
+
+    crypto_fields = tag + nonce
+    data = ciphertext + crypto_fields
+
+    return data
+
+
+def decrypt_file(file):
+    global hashed_passw
+    key = hashed_passw
+
+    tag = file[-32:-16]
+    nonce = file[-16:]
+    ciphertext = file[0:-32]
+
+    cipher = AES.new(key=key, mode=AES.MODE_GCM, nonce=nonce, mac_len=16)
+    data = cipher.decrypt_and_verify(ciphertext, tag)
+
+    return data
+
 
 def main():
-    username = 'amyglassires'  # input('Please enter your username: ')
-    password = 'afraidofuntruecops'  # input("Password: ")
-    # todo: átírni getpassra
-    # password = getpass("Password: ")
+    username = input('Please enter your username: ')
+    password = getpass("Password: ")
     send_session_init(username.encode(), password.encode())
 
     _, msg = netif.receive_msg(blocking=True)
@@ -150,9 +217,10 @@ def main():
     with open(os.path.join("magan.png"), "rb") as in_file:
         data = in_file.read()
 
-    send_request('UPL', pad_to_length("magan.png".encode(), 255) + data)
-    _, msg = netif.receive_msg(blocking=True)
-    process_response(msg)
+        send_request(cmd, body)
+        _, msg = netif.receive_msg(blocking=True)
+        process_response(msg)
+
 
 if __name__ == '__main__':
     main()

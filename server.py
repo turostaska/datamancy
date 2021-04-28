@@ -1,5 +1,6 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 import struct
+from getpass import getpass
 
 from Crypto import Random
 from Crypto.Cipher import PKCS1_OAEP, AES
@@ -129,13 +130,23 @@ def send_response(cmd, req_sqn, body):
     netif.send_msg(protocol_state.addr, data)
 
 
+
 def mkd(folder_name: str):
-    if '.' in folder_name or os.path.sep in folder_name:
-        print(f'Folder name contained illegal characters')
-        send_response("MKD", protocol_state.req_sqn, types['failure'])
+    if not check_path_in_scope(folder_name):
+        print(f'Path is out of scope')
+        send_response("MKD", protocol_state.req_sqn, result['failure'])
         return
-    if not os.path.isdir(append_to_user_path(protocol_state.working_dir, folder_name)):
-        os.mkdir(append_to_user_path(protocol_state.working_dir, folder_name))
+    try:
+        if not os.path.isdir(append_to_user_path(protocol_state.working_dir, folder_name)):
+            os.mkdir(append_to_user_path(protocol_state.working_dir, folder_name))
+        else:
+            print(f'Directory already exists.')
+            send_response("MKD", protocol_state.req_sqn, result['failure'])
+            return
+    except:
+        print(f'Making directory failed.')
+        send_response("MKD", protocol_state.req_sqn, result['failure'])
+        return
 
     send_response("MKD", protocol_state.req_sqn, types['success'])
 
@@ -145,27 +156,37 @@ def rmd(folder_name: str):
         print(f'Folder name contained illegal character.')
         send_response("RMD", protocol_state.req_sqn, types['failure'])
         return
-    if os.path.isdir(append_to_user_path(protocol_state.working_dir, folder_name)):
-        os.rmdir(append_to_user_path(protocol_state.working_dir, folder_name))
+    try:
+        if os.path.isdir(append_to_user_path(protocol_state.working_dir, folder_name)):
+            os.rmdir(append_to_user_path(protocol_state.working_dir, folder_name))
+        else:
+            print(f'Directory does not exist.')
+            send_response("RMD", protocol_state.req_sqn, result['failure'])
+            return
+    except:
+        print('Folder was not empty during deletion.')
+        send_response("RMD", protocol_state.req_sqn, result['failure'])
+        return
     send_response("RMD", protocol_state.req_sqn, result['success'])
 
 
-def gwd():  # get working dir
+def gwd():
     send_response('GWD', protocol_state.req_sqn, os.path.relpath(protocol_state.working_dir, os.getcwd()).encode())
 
 
 def cwd(folder_name):
     desired_path = os.path.abspath(os.path.join(protocol_state.working_dir, folder_name))
-    if not path_is_parent(os.path.join(".", protocol_state.username), desired_path):
+    if not check_path_in_scope(folder_name):
         print(f'Folder falls out of scope: {desired_path}.')
-        send_response("CWD", protocol_state.req_sqn, types['failure'])
+        send_response("CWD", protocol_state.req_sqn, result['failure'])
         return
     if not os.path.isdir(append_to_user_path(protocol_state.working_dir, folder_name)):
         print(f'Folder does not exist: {desired_path}')
-        send_response("CWD", protocol_state.req_sqn, types['failure'])
+        send_response("CWD", protocol_state.req_sqn, result['failure'])
         return
     protocol_state.working_dir = desired_path
     send_response('CWD', protocol_state.req_sqn, result['success'])
+
 
 def lst():
     msg = ''
@@ -193,9 +214,9 @@ def dnl(filename):
 
 
 def rmf(file_name):
-    if '.' in file_name or os.path.sep in file_name:
-        print(f'Filename contained illegal character.')
-        send_response("RMF", protocol_state.req_sqn, types['failure'])
+    if not check_path_in_scope(file_name):
+        print(f'Path is out of scope')
+        send_response("RMF", protocol_state.req_sqn, result['failure'])
         return
     if os.path.isfile(append_to_user_path(protocol_state.working_dir, file_name)):
         os.remove(append_to_user_path(protocol_state.working_dir, file_name))
@@ -203,9 +224,6 @@ def rmf(file_name):
 
 
 def process_request(msg):
-    # global protocol_state
-    # protocol_state = ProtocolState(protocol_state.state, protocol_state.session_key, protocol_state.sqn + 1, protocol_state.addr)
-
     tag = msg[-32:-16]
     nonce = msg[-16:]
     ciphertext = msg[0:-32]
@@ -218,7 +236,7 @@ def process_request(msg):
     timestamp = struct.unpack("d", data[9:17])[0]
     sqn = int.from_bytes(data[17:21], byteorder='big')
     cmd = data[21:24].decode('utf8').upper()
-    body = data[24:]  # todo: .decode('utf8')
+    body = data[24:]
 
     if type != types['request']:
         print(f"Invalid type, got {type}")
@@ -257,13 +275,7 @@ def process_request(msg):
     elif cmd == 'DNL':
         dnl(body.decode("utf8"))
     elif cmd == 'RMF':
-        rmf(body.decode("utf8"))
-
-
-def send_gcm_msg():
-    type = types['response']
-    pass
-
+        rmf(remove_padding(body).decode("utf8"))
 
 def main():
     generate_rsa_keys()

@@ -18,7 +18,8 @@ result = {
 server_addr = 'A'
 network_path = "./netsim/network/"
 public_key_path = './public_key'
-users_path = './users'
+private_key_path = './private-key'
+users_path = 'users'
 
 def pad_to_length(to_pad, length):
     assert len(to_pad) <= length
@@ -37,7 +38,7 @@ def remove_padding(padded):
 
 
 def append_to_user_path(username,path):
-    return os.path.join('.',username,path)
+    return os.path.join('', username, path)
 
 
 def init_network(own_addr):
