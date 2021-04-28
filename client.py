@@ -4,6 +4,7 @@ from datetime import datetime
 
 from Crypto.Cipher import AES, PKCS1_OAEP
 from Crypto import Random
+from Crypto.Hash import SHA3_256
 from Crypto.PublicKey import RSA
 from utils import *
 from getpass import getpass
@@ -22,6 +23,7 @@ states = {'WAITING': 1, 'ACTIVE': 2}
 protocol_state = ProtocolState(states['WAITING'])
 own_addr = 'B'
 netif = init_network(own_addr)
+hashed_passw = None
 
 
 def read_rsa_public_key():
@@ -205,17 +207,46 @@ def main():
     password = getpass("Password: ")
     send_session_init(username.encode(), password.encode())
 
+    store_hashed_pwd(password)
+    password = None
+
     _, msg = netif.receive_msg(blocking=True)
     if not process_session_accept(msg):
         print('Login failed.')
         return
 
-    # send_request('DNL', 'magan.png'.encode())
-    # _, msg = netif.receive_msg(blocking=True)
-    # process_response(msg)
+    while True:
+        line = input('Awaiting command: ')
+        parts = line.split(' ', 1)
 
-    with open(os.path.join("magan.png"), "rb") as in_file:
-        data = in_file.read()
+        cmd = parts[0].upper()
+        if cmd == 'MKD':
+            body = pad_to_length(parts[1].encode(),255)
+        elif cmd == 'RMD':
+            body = pad_to_length(parts[1].encode(),255)
+        elif cmd == 'GWD':
+            body = "".encode()
+        elif cmd == 'CWD':
+            body = pad_to_length(parts[1].encode(),255)
+        elif cmd == 'LST':
+            body = "".encode()
+        elif cmd == 'UPL':
+            filename = parts[1]
+            try:
+                with open(os.path.join(os.getcwd(), filename), "rb") as in_file:
+                    file = in_file.read()
+                    encrypted_file = encrypt_file(file)
+            except:
+                print(f'File not found: {filename}')
+                continue
+            body = pad_to_length(filename.encode(),255) + encrypted_file
+        elif cmd == 'DNL':
+            body = pad_to_length(parts[1].encode(),255)
+        elif cmd == 'RMF':
+            body = pad_to_length(parts[1].encode(),255)
+        else:
+            print('Wrong command.')
+            continue
 
         send_request(cmd, body)
         _, msg = netif.receive_msg(blocking=True)

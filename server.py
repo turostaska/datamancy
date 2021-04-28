@@ -23,8 +23,6 @@ class ProtocolState:
         self.username = username
         self.working_dir = working_dir
 
-
-private_key_path = './private-key'
 key_pair = None
 netif = init_network(server_addr)
 users = {}
@@ -56,29 +54,30 @@ def auth_client(ciphertext):
     password = remove_padding(password_padded)
     session_key = remove_padding(session_key_padded)
 
-    print(username)
-    print(password.decode('utf8'))
-    print(session_key)
-
     hash = SHA256.new()
     hash.update(password)
     password_hashed = hash.digest()
     return users[username] == password_hashed, session_key, addr, username
 
 
-def generate_rsa_keys():
+def load_rsa_key(master_password):
+    hash = SHA256.new()
+    hash.update(master_password.encode())
+    password_hashed = hash.digest()
+
     global key_pair
     if os.path.exists(private_key_path) and os.path.exists(public_key_path):
         with open(private_key_path, 'rb') as f:
-            key_pair = RSA.import_key(f.read())
-            print(key_pair.export_key())
-        return
+            file = f.read()
+            nonce = file[:16]
+            tag = file[16:32]
+            ciphertext = file[32:]
 
-    key_pair = RSA.generate(2048)
-    with open(private_key_path, 'wb') as f:
-        f.write(key_pair.export_key('DER'))
-    with open(public_key_path, 'wb') as f:
-        f.write(key_pair.public_key().export_key('DER'))
+            cipher = AES.new(key=password_hashed, mode=AES.MODE_GCM, nonce=nonce, mac_len=16)
+            key = cipher.decrypt_and_verify(ciphertext,tag)
+
+            key_pair = RSA.import_key(key)
+            print("Successful login")
 
 
 def read_users():
@@ -130,6 +129,10 @@ def send_response(cmd, req_sqn, body):
     netif.send_msg(protocol_state.addr, data)
 
 
+def check_path_in_scope(path):
+    desired_path = os.path.abspath(os.path.join(protocol_state.working_dir, path))
+    return path_is_parent(os.path.join(".", protocol_state.username), desired_path)
+
 
 def mkd(folder_name: str):
     if not check_path_in_scope(folder_name):
@@ -148,13 +151,13 @@ def mkd(folder_name: str):
         send_response("MKD", protocol_state.req_sqn, result['failure'])
         return
 
-    send_response("MKD", protocol_state.req_sqn, types['success'])
+    send_response("MKD", protocol_state.req_sqn, result['success'])
 
 
 def rmd(folder_name: str):
-    if '.' in folder_name or os.path.sep in folder_name:
-        print(f'Folder name contained illegal character.')
-        send_response("RMD", protocol_state.req_sqn, types['failure'])
+    if not check_path_in_scope(folder_name):
+        print(f'Path is out of scope')
+        send_response("RMD", protocol_state.req_sqn, result['failure'])
         return
     try:
         if os.path.isdir(append_to_user_path(protocol_state.working_dir, folder_name)):
@@ -196,9 +199,14 @@ def lst():
 
 
 def upl(filename, file):
+    if not check_path_in_scope(filename):
+        print('Path falls out of scope.')
+        send_response('UPL', protocol_state.req_sqn, result['failure'])
+        return
     try:
-        with open(os.path.join(protocol_state.working_dir, remove_padding(filename).decode()), "wb") as out_file:
+        with open(os.path.join(protocol_state.working_dir, filename), "wb") as out_file:
             out_file.write(file)
+            send_response('UPL', protocol_state.req_sqn, result['success'])
     except:
         traceback.print_exc()
         send_response('UPL', protocol_state.req_sqn, result['failure'])
@@ -211,9 +219,11 @@ def dnl(filename):
         return
     try:
         with open(os.path.join(protocol_state.working_dir, filename), "rb") as in_file:
-            data = in_file.read()
-            send_response('DNL', protocol_state.req_sqn, result['success'])
+            file = in_file.read()
+            body = pad_to_length(filename.encode('utf8'), 255) + file
+            send_response('DNL', protocol_state.req_sqn, body)
     except:
+        print("File not found")
         send_response('DNL', protocol_state.req_sqn, result['failure'])
 
 
@@ -224,6 +234,10 @@ def rmf(file_name):
         return
     if os.path.isfile(append_to_user_path(protocol_state.working_dir, file_name)):
         os.remove(append_to_user_path(protocol_state.working_dir, file_name))
+    else:
+        print(f'File does not exist.')
+        send_response("RMF", protocol_state.req_sqn, result['failure'])
+        return
     send_response("RMF", protocol_state.req_sqn, result['success'])
 
 
@@ -262,27 +276,28 @@ def process_request(msg):
     protocol_state.req_sqn += 1
 
     if cmd == 'MKD':
-        mkd(body.decode("utf8"))
+        mkd(remove_padding(body).decode("utf8"))
     elif cmd == 'RMD':
-        rmd(body.decode("utf8"))
+        rmd(remove_padding(body).decode("utf8"))
     elif cmd == 'GWD':
         gwd()
     elif cmd == 'CWD':
-        cwd(body.decode("utf8"))
+        cwd(remove_padding(body).decode("utf8"))
     elif cmd == 'LST':
         lst()
     elif cmd == 'UPL':
         filename = body[:255]
         file = body[255:]
-        upl(filename, file)
-        pass
+        upl(remove_padding(filename).decode("utf8"), file)
     elif cmd == 'DNL':
         dnl(remove_padding(body).decode("utf8"))
     elif cmd == 'RMF':
         rmf(remove_padding(body).decode("utf8"))
 
 def main():
-    generate_rsa_keys()
+    master_password = getpass("Please enter the master password:")
+    load_rsa_key(master_password)
+    master_password = None
     read_users()
 
     while protocol_state.state == states['WAITING']:
